@@ -1,9 +1,11 @@
+#include <bits/types/struct_timeval.h>
 #include <renderer.h>
 
 #include <asm-generic/errno-base.h>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -15,6 +17,16 @@
 int update_active_screen_info(struct terminal *tm, struct top_frame *tf) {
     if (!is_size_sufficient(tm, tf)) return INSUFFICIENT_TERM_SIZE;
     switch (tf->discriminant) {
+        case WELCOME_SCREEN:
+            struct welcome_screen *welcome= tf->welcome;
+            welcome->x = (tm->height - WELCOME_HEIGHT) / 2 + 1;
+            welcome->y = (tm->width - WELCOME_WIDTH) / 2 + 1;
+            break;
+        case START_SCREEN:
+            struct start_screen *start= tf->start;
+            start->x = (tm->height - START_SCREEN_HEIGHT) / 2 + 1;
+            start->y = (tm->width - START_SCREEN_WIDTH) / 2 + 1;
+            break;
         case IN_GAME:
             struct game_state *gs = tf->game;
             unsigned short start_row = (tm->height - GRID_HEIGHT) / 2 + 1;
@@ -33,6 +45,10 @@ int update_active_screen_info(struct terminal *tm, struct top_frame *tf) {
 
 bool is_size_sufficient(struct terminal *tm, struct top_frame *tf) {
     switch (tf->discriminant) {
+        case WELCOME_SCREEN:
+            return ((tm->height >= WELCOME_HEIGHT) && (tm->width >= WELCOME_WIDTH));
+        case START_SCREEN:
+            return ((tm->height >= START_SCREEN_HEIGHT) && (tm->width >= START_SCREEN_WIDTH));
         case IN_GAME:
             return ((tm->height >= GRID_HEIGHT + 2) && (tm->width >= MAX_HELP_MSG_LEN));
         case AFTER_GAME:
@@ -48,6 +64,120 @@ void display_in_grid_position(struct terminal *tm, struct game_state *state) {
     state->grid->grid_position_row = start_row;
     state->grid->grid_position_col = start_col;
     print_grid(state->grid);
+}
+
+void print_difficulty_selector(struct start_screen *ss) {
+    int x = ss->x;
+    int y = ss->y;
+    printf("\033[%hu;%huH┌──────────────────────────────┐", x, y);
+    printf("\033[%hu;%huH│                              │", x+1, y);
+    printf("\033[%hu;%huH│      Choose difficulty       │", x+2, y);
+    printf("\033[%hu;%huH│                              │", x+3, y);
+    printf("\033[%hu;%huH│   1. Random                  │", x+4, y);
+    printf("\033[%hu;%huH│   2. Medium                  │", x+5, y);
+    printf("\033[%hu;%huH│   3. Impossible              │", x+6, y);
+    printf("\033[%hu;%huH│                              │", x+7, y);
+    printf("\033[%hu;%huH└──────────────────────────────┘", x+8, y);
+    fflush(stdout);
+}
+
+player_action select_comp_difficulty(struct start_screen *ss) {
+    print_difficulty_selector(ss);
+    int current_selected = ss->choice;
+    int offset = ss->choice;
+    char options[3][31] = {
+        "   1. Random                  ",
+        "   2. Medium                  ",
+        "   3. Impossible              ",
+    };
+    player_action diffs[3] = { &computer_move_random, &computer_move_medium, &computer_move_impossible };
+    loop {
+        printf("\033[%hu;%huH│\033[7m%s\033[0m│", ss->x+4+offset, ss->y, options[offset]);
+        fflush(stdout);
+        switch (read_special_key()) {
+            case READ_INTERRUPTED: return NULL;
+            case KC_UP:
+                current_selected -= 1;
+                break;
+            case KC_DOWN:
+                current_selected += 1;
+                break;
+            case KC_ENTER:
+                ss->choice = 0;
+                return diffs[offset];
+        }
+        printf("\033[%hu;%huH│\033[0m%s│", ss->x+4+offset, ss->y, options[offset]);
+        fflush(stdout);
+        offset = (3 + current_selected) % 3;
+        current_selected = offset;
+        ss->choice = offset;
+    }
+    return NULL; // unreachable
+}
+
+void print_player_selector(struct start_screen *ss, int player_num) {
+    int x = ss->x;
+    int y = ss->y;
+    printf("\033[%hu;%huH┌──────────────────────────────┐", x, y);
+    printf("\033[%hu;%huH│                              │", x+1, y);
+    printf("\033[%hu;%huH│  Who will play as Player %d?  │", x+2, y, player_num);
+    printf("\033[%hu;%huH│                              │", x+3, y);
+    printf("\033[%hu;%huH│   1. Person                  │", x+4, y);
+    printf("\033[%hu;%huH│   2. Computer                │", x+5, y);
+    printf("\033[%hu;%huH│                              │", x+6, y);
+    printf("\033[%hu;%huH│                              │", x+7, y);
+    printf("\033[%hu;%huH└──────────────────────────────┘", x+8, y);
+    fflush(stdout);
+}
+
+// TODO: refactor if possible
+enum selector select_action(struct start_screen *ss, int player_num) {
+    print_player_selector(ss, player_num);
+    int current_selected = ss->choice;
+    int offset = ss->choice;
+    char options[2][31] = {
+        "   1. Person                  ",
+        "   2. Computer                ",
+    };
+    loop {
+        printf("\033[%hu;%huH│\033[7m%s\033[0m│", ss->x+4+offset, ss->y, options[offset]);
+        fflush(stdout);
+        switch (read_special_key()) {
+            case READ_INTERRUPTED:
+                return INTERRUPTED;
+            case KC_UP:
+                current_selected -= 1;
+                break;
+            case KC_DOWN:
+                current_selected += 1;
+                break;
+            case KC_ENTER:
+                ss->choice = 0;
+                if (offset == 0) return PLAYER_MOVE;
+                else return COMPUTER_MOVE;
+        }
+        printf("\033[%hu;%huH│\033[0m%s│", ss->x+4+offset, ss->y, options[offset]);
+        fflush(stdout);
+        offset = (2 + current_selected) % 2;
+        current_selected = offset;
+        ss->choice = offset;
+    }
+    return INTERRUPTED; // unreachable
+}
+
+void print_welcome(struct welcome_screen *welcome) {
+    int x = welcome->x;
+    int y = welcome->y;
+    printf("\033[%hu;%huH┌──────────────────────────────┐", x, y);
+    printf("\033[%hu;%huH│                              │", x+1, y);
+    printf("\033[%hu;%huH│  Welcome to the Tic-Tac-Toe! │", x+2, y);
+    printf("\033[%hu;%huH│                              │", x+3, y);
+    printf("\033[%hu;%huH│     Press Enter to begin     │", x+4, y);
+    printf("\033[%hu;%huH│                              │", x+5, y);
+    printf("\033[%hu;%huH│                              │", x+6, y);
+    printf("\033[%hu;%huH│     Developed by lorglL      │", x+7, y);
+    printf("\033[%hu;%huH└──────────────────────────────┘", x+8, y);
+    fflush(stdout);
 }
 
 void print_after_game_menu(struct after_game *menu) {
@@ -79,10 +209,10 @@ void print_grid(struct grid_state *state) {
     fflush(stdout);
 }
 
-void print_info_msg(struct terminal *tm, struct game_state *gs, char *info_msg) {
+void print_info_msg(struct terminal *tm, struct grid_state *state, char *info_msg) {
     int len = strlen(info_msg);
     if (len > MAX_INFO_MSG_LEN) return;
-    unsigned short row = gs->grid->grid_position_row - 1;
+    unsigned short row = state->grid_position_row - 1;
     unsigned short col = (tm->width - len) / 2 + 1;
     printf("\033[%hu;%huH%s", row, col, info_msg);
     fflush(stdout);
@@ -97,14 +227,25 @@ void print_help_msg(struct terminal *tm, struct grid_state *state, char *help_ms
     fflush(stdout);
 }
 
-int read_special_key() {
-    tcflush(STDIN_FILENO, TCIFLUSH);
+int read_next_byte_nonblocking(char *dest) {
+    fd_set fd;
+    struct timeval tv = {0, 0};
+    FD_ZERO(&fd);
+    FD_SET(STDIN_FILENO, &fd);
+
+    if (select(STDIN_FILENO + 1, &fd, NULL, NULL, &tv) <= 0) return 0;
+    return read(STDIN_FILENO, dest, 1) == 1;
+}
+
+int read_key_unchecked() {
     char c;
-    if (read(STDIN_FILENO, &c, 1) != 1) return EINTR;
+    if (read(STDIN_FILENO, &c, 1) != 1) return READ_INTERRUPTED;
+
     if (c == '\033') {
         char cc[2];
-        if (read(STDIN_FILENO, &cc[0], 1) != 1) return EINTR;
-        if (read(STDIN_FILENO, &cc[1], 1) != 1) return EINTR;
+        if (!read_next_byte_nonblocking(&cc[0])) return UNKNOWN_KEY;
+        if (!read_next_byte_nonblocking(&cc[1])) return UNKNOWN_KEY;
+
         if (cc[0] == '[') {
             switch (cc[1]) {
                 case 'A': return KC_UP;
@@ -122,6 +263,33 @@ int read_special_key() {
         case 'q': trigger_termination(0);
     }
     return UNKNOWN_KEY;
+}
+
+int read_special_key() {
+    tcflush(STDIN_FILENO, TCIFLUSH);
+    return read_key_unchecked();
+}
+
+void ai_delay_one_second() {
+    for (int i = 0; i < 20; ++i) {
+        loop {
+            fd_set fd;
+            struct timeval tv = {0, 0};
+            FD_ZERO(&fd);
+            FD_SET(STDIN_FILENO, &fd);
+
+            if (select(STDIN_FILENO + 1, &fd, NULL, NULL, &tv) <= 0) break;
+            read_key_unchecked();
+        }
+        if (is_exit_requested()) return;
+        usleep(50000);
+    }
+}
+
+void on_computer_move(struct terminal *tm, struct grid_state *state) {
+    char info_msg[MAX_INFO_MSG_LEN] = "Computer is thinking...";
+    print_info_msg(tm, state, info_msg);
+    ai_delay_one_second();
 }
 
 int read_player_input(struct grid_state *state) {

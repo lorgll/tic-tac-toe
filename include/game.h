@@ -5,6 +5,8 @@
 
 #include <terminal.h>
 
+#define FIELD_LEN 9
+
 #define EMPTY ' '
 #define PLAYER_1 'X'
 #define PLAYER_2 'O'
@@ -16,7 +18,7 @@ enum game_result {
 };
 
 struct game_state;
-typedef char field_t[9];
+typedef char field_t[FIELD_LEN];
 typedef int (*player_action)(struct game_state *state, struct terminal *tm);
 struct grid_state {
   int cursor_position;
@@ -33,8 +35,13 @@ struct game_state {
 };
 void init_game(struct game_state *gs, player_action action_1,
                player_action action_2, struct grid_state *grid);
+
 int invoke_current_action(struct game_state *game, struct terminal *tm);
 int player_move(struct game_state *game, struct terminal *tm);
+int computer_move_random(struct game_state *game, struct terminal *tm);
+int computer_move_medium(struct game_state *game, struct terminal *tm);
+int computer_move_impossible(struct game_state *game, struct terminal *tm);
+
 bool checked_set(struct game_state *state, int pos);
 void switch_player(struct game_state *gs);
 bool check_win(struct game_state *gs);
