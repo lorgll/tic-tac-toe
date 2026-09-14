@@ -1,8 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/ioctl.h>
 #include <time.h>
+
+#ifndef _WIN32
+#include <sys/ioctl.h>
 #include <unistd.h>
+#else
+#include <windows.h>
+#endif
 
 #include <game.h>
 #include <prelude.h>
@@ -22,7 +27,26 @@ int resize_handler(struct terminal *tm, void *data);
 // on each stage
 enum frame_verdict loop_preprocessor(struct terminal *tm, struct top_frame *tf);
 
+#if defined(_WIN32)
+HANDLE main_thread_handle;
+
+BOOL WINAPI windows_handler(DWORD ctrl_type) {
+    if (ctrl_type == CTRL_C_EVENT) {
+        trigger_termination(0);
+        CancelSynchronousIo(main_thread_handle);
+        return TRUE;
+    }
+    return FALSE;
+}
+#endif
+
 int main(void) {
+    #if defined(_WIN32)
+        DuplicateHandle(GetCurrentProcess(), GetCurrentThread(),
+                        GetCurrentProcess(), &main_thread_handle,
+                        0, FALSE, DUPLICATE_SAME_ACCESS);
+        SetConsoleCtrlHandler(windows_handler, TRUE);
+    #endif
     srand(time(NULL));
     if (setup_terminal() == NOT_A_TERMINAL) {
         perror("not a terminal");
@@ -36,7 +60,6 @@ int main(void) {
     tf.discriminant = WELCOME_SCREEN;
     tf.welcome = &welcome;
     print_welcome_screen(&tm, &tf);
-
     loop {
         struct grid_state grid; init_grid(&grid);
         struct game_state game;
@@ -78,11 +101,19 @@ int resize_handler(struct terminal *tm, void *data) {
 
 enum frame_verdict loop_preprocessor(struct terminal *tm, struct top_frame *tf) {
     fflush(stdout);
+#ifdef _WIN32
+    char dummy;
+    read_next_byte_nonblocking(&dummy);
+    Sleep(FPS_30);
+    on_resize(tm, &resize_handler, (void *)tf);
+#else
     usleep(FPS_30);
+#endif
     clear_terminal();
     if (is_resized()) on_resize(tm, &resize_handler, (void *)tf);
     if (!is_size_sufficient(tm, tf)) {
-        printf("Expand your terminal!");
+        printf("\033[1;1HExpand your terminal!");
+        fflush(stdout);
         return SKIP;
     }
     return ALLOW;

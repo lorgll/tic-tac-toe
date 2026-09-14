@@ -68,6 +68,7 @@ void print_info_msg(struct terminal *tm, struct grid_state *state,
 void print_help_msg(struct terminal *tm, struct grid_state *state,
                     char *help_msg);
 void on_computer_move(struct terminal *tm, struct grid_state *state);
+bool read_next_byte_nonblocking(char *dest);
 int read_special_key();
 int read_player_input(struct grid_state *state);
 

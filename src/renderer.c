@@ -1,13 +1,19 @@
-#include <bits/types/struct_timeval.h>
 #include <renderer.h>
 
+#ifndef _WIN32
 #include <asm-generic/errno-base.h>
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
+#include <bits/types/struct_timeval.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
+#else
+#include <windows.h>
+#include <conio.h>
+#endif
+
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
 
 #include <game.h>
 #include <prelude.h>
@@ -227,19 +233,99 @@ void print_help_msg(struct terminal *tm, struct grid_state *state, char *help_ms
     fflush(stdout);
 }
 
-int read_next_byte_nonblocking(char *dest) {
+int safe_read_char(char *dest) {
+#ifdef _WIN32
+    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+    INPUT_RECORD record;
+    DWORD read;
+
+    loop {
+        if (!ReadConsoleInput(hStdin, &record, 1, &read) || read == 0) {
+            return READ_INTERRUPTED;
+        }
+        if (record.EventType == WINDOW_BUFFER_SIZE_EVENT) {
+            return READ_INTERRUPTED;
+        }
+
+        if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown) {
+            char ch = record.Event.KeyEvent.uChar.AsciiChar;
+            if (ch != 0) {
+                *dest = ch;
+                return SUCCESS;
+            }
+        }
+    }
+    return READ_INTERRUPTED;
+#else
+    int result = read(STDIN_FILENO, dest, 1);
+    if (result != 1) return READ_INTERRUPTED;
+    return SUCCESS;
+#endif
+}
+
+bool read_next_byte_nonblocking(char *dest) {
+#ifndef _WIN32
+    // Linux-версия остаётся без изменений "as is"
     fd_set fd;
     struct timeval tv = {0, 0};
     FD_ZERO(&fd);
     FD_SET(STDIN_FILENO, &fd);
-
-    if (select(STDIN_FILENO + 1, &fd, NULL, NULL, &tv) <= 0) return 0;
+    if (select(STDIN_FILENO + 1, &fd, NULL, NULL, &tv) <= 0) return false;
     return read(STDIN_FILENO, dest, 1) == 1;
+#else
+    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD numEvents = 0;
+
+    // Если в буфере вообще ничего нет — выходим
+    if (!GetNumberOfConsoleInputEvents(hStdin, &numEvents) || numEvents == 0) {
+        return false;
+    }
+
+    // Читаем события по одному, пока очередь не опустеет на эту итерацию
+    while (numEvents > 0) {
+        INPUT_RECORD record;
+        DWORD read;
+
+        // Смотрим на текущее первое событие в очереди
+        if (!PeekConsoleInput(hStdin, &record, 1, &read) || read == 0) {
+            return false;
+        }
+
+        // 1. ЕСЛИ ЭТО РЕСАЙЗ: Взводим флаг, удаляем событие и сразу сигнализируем игре
+        if (record.EventType == WINDOW_BUFFER_SIZE_EVENT) {
+            trigger_redraw(0); // Ваш atomic-флаг
+            ReadConsoleInput(hStdin, &record, 1, &read); // Извлекаем (удаляем) его из очереди
+            return false; // Прерываемся, чтобы loop_preprocessor успел вызвать on_resize
+        }
+
+        // 2. ЕСЛИ ЭТО КЛАВИАТУРА:
+        if (record.EventType == KEY_EVENT) {
+            // Нам нужны только нажатия печатных символов (для стрелок AsciiChar уже генерируется благодаря ANSI-режиму)
+            if (record.Event.KeyEvent.bKeyDown && record.Event.KeyEvent.uChar.AsciiChar != 0) {
+                ReadConsoleInput(hStdin, &record, 1, &read); // Окончательно забираем байт
+                *dest = record.Event.KeyEvent.uChar.AsciiChar;
+                return true; // Возвращаем true — байт успешно считан
+            }
+        }
+
+        // 3. ЕСЛИ ЭТО МУСОР (отпускание клавиш, мышь, фокус):
+        // Просто удаляем его из очереди, чтобы продвинуться к следующему событию
+        ReadConsoleInput(hStdin, &record, 1, &read);
+
+        // Обновляем количество оставшихся событий в очереди
+        if (!GetNumberOfConsoleInputEvents(hStdin, &numEvents)) {
+            break;
+        }
+    }
+
+    return false;
+#endif
 }
 
-int read_key_unchecked() {
+
+int read_key_unchecked(void) {
     char c;
-    if (read(STDIN_FILENO, &c, 1) != 1) return READ_INTERRUPTED;
+    if (safe_read_char(&c) != SUCCESS) return READ_INTERRUPTED;
 
     if (c == '\033') {
         char cc[2];
@@ -266,12 +352,17 @@ int read_key_unchecked() {
 }
 
 int read_special_key() {
+#ifndef _WIN32
     tcflush(STDIN_FILENO, TCIFLUSH);
+#else
+    FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+#endif
     return read_key_unchecked();
 }
 
-void ai_delay_one_second() {
+void ai_delay_one_second(void) {
     for (int i = 0; i < 20; ++i) {
+#ifndef _WIN32
         loop {
             fd_set fd;
             struct timeval tv = {0, 0};
@@ -281,8 +372,17 @@ void ai_delay_one_second() {
             if (select(STDIN_FILENO + 1, &fd, NULL, NULL, &tv) <= 0) break;
             read_key_unchecked();
         }
-        if (is_exit_requested()) return;
         usleep(50000);
+#else
+        loop {
+            char dummy;
+            if (!read_next_byte_nonblocking(&dummy)) break;
+
+            read_key_unchecked();
+        }
+        Sleep(50);
+#endif
+        if (is_exit_requested()) return;
     }
 }
 

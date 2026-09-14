@@ -23,7 +23,12 @@
 
 #define CURSOR_POSITION_CENTER 4
 
+#ifndef _WIN32
 #define FPS_30 33333
 #define FPS_60 16666
+#else
+#define FPS_30 33
+#define FPS_60 16
+#endif // _WIN32
 
 #endif // _PRELUDE_H

@@ -3,9 +3,11 @@
 #ifndef _TERMINAL_H
 #define _TERMINAL_H
 
+#ifndef _WIN32
 #include <termios.h>
-
 extern struct termios terminal_state;
+#endif
+
 int begin_session();
 void end_session();
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(tic_tac_toe LANGUAGES C VERSION 0.1.0)
+project(tic_tac_toe LANGUAGES C VERSION 0.2.0-alpha.1)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 23)
