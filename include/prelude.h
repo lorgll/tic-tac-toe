@@ -3,6 +3,10 @@
 #ifndef _PRELUDE_H
 #define _PRELUDE_H
 
+#if !(defined(_WIN32) ^ defined(__linux__))
+#error "Unsupported architecture"
+#endif
+
 #define loop while (!is_exit_requested())
 
 #define SUCCESS 0
@@ -23,7 +27,18 @@
 
 #define CURSOR_POSITION_CENTER 4
 
+#ifndef _WIN32
 #define FPS_30 33333
 #define FPS_60 16666
+#define MS_50 50000
+#include <unistd.h>
+#define mp_sleep(t) usleep(t)
+#else
+#define FPS_30 33
+#define FPS_60 16
+#define MS_50 50
+#include <windows.h>
+#define mp_sleep(t) Sleep(t)
+#endif
 
 #endif // _PRELUDE_H

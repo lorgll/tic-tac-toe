@@ -57,8 +57,10 @@ enum selector {
   COMPUTER_MOVE,
   INTERRUPTED,
 };
-enum selector select_action(struct start_screen *ss, int player_num);
-player_action select_comp_difficulty(struct start_screen *ss);
+enum selector select_action(struct terminal *tm, struct start_screen *ss,
+                            int player_num);
+player_action select_comp_difficulty(struct terminal *tm,
+                                     struct start_screen *ss);
 void display_in_grid_position(struct terminal *tm, struct game_state *state);
 void print_welcome(struct welcome_screen *welcome);
 void print_after_game_menu(struct after_game *menu);
@@ -68,7 +70,7 @@ void print_info_msg(struct terminal *tm, struct grid_state *state,
 void print_help_msg(struct terminal *tm, struct grid_state *state,
                     char *help_msg);
 void on_computer_move(struct terminal *tm, struct grid_state *state);
-int read_special_key();
-int read_player_input(struct grid_state *state);
+int read_special_key(struct terminal *tm);
+int read_player_input(struct terminal *tm, struct grid_state *state);
 
 #endif // _RENDERER_H

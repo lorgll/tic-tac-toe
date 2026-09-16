@@ -4,7 +4,6 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include <prelude.h>
 #include <renderer.h>
@@ -14,6 +13,7 @@
 #define MAX(a, b) ((a > b) ? a : b)
 
 #define WIN_COND_LEN 8
+
 static int win_conditions[WIN_COND_LEN][3] = {
     {0, 1, 2}, {3, 4, 5}, {6, 7, 8}, // rows
     {0, 3, 6}, {1, 4, 7}, {2, 5, 8}, // columns
@@ -39,7 +39,7 @@ int player_move(struct game_state *game, struct terminal *tm) {
     snprintf(info_msg, MAX_INFO_MSG_LEN, "Player %d's turn", current_player);
     print_info_msg(tm, game->grid, info_msg);
     loop {
-        int res = read_player_input(game->grid);
+        int res = read_player_input(tm, game->grid);
         if (res == READ_INTERRUPTED) return READ_INTERRUPTED;
         if (checked_set(game, res)) break;
     }

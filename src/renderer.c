@@ -1,18 +1,20 @@
-#include <bits/types/struct_timeval.h>
 #include <renderer.h>
 
-#include <asm-generic/errno-base.h>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifndef _WIN32
+#include <asm-generic/errno-base.h>
 #include <sys/select.h>
 #include <termios.h>
-#include <unistd.h>
+#else
+#include <conio.h>
+#endif
 
 #include <game.h>
 #include <prelude.h>
 #include <terminal.h>
-
 
 int update_active_screen_info(struct terminal *tm, struct top_frame *tf) {
     if (!is_size_sufficient(tm, tf)) return INSUFFICIENT_TERM_SIZE;
@@ -81,7 +83,7 @@ void print_difficulty_selector(struct start_screen *ss) {
     fflush(stdout);
 }
 
-player_action select_comp_difficulty(struct start_screen *ss) {
+player_action select_comp_difficulty(struct terminal *tm, struct start_screen *ss) {
     print_difficulty_selector(ss);
     int current_selected = ss->choice;
     int offset = ss->choice;
@@ -94,7 +96,7 @@ player_action select_comp_difficulty(struct start_screen *ss) {
     loop {
         printf("\033[%hu;%huH│\033[7m%s\033[0m│", ss->x+4+offset, ss->y, options[offset]);
         fflush(stdout);
-        switch (read_special_key()) {
+        switch (read_special_key(tm)) {
             case READ_INTERRUPTED: return NULL;
             case KC_UP:
                 current_selected -= 1;
@@ -131,7 +133,7 @@ void print_player_selector(struct start_screen *ss, int player_num) {
 }
 
 // TODO: refactor if possible
-enum selector select_action(struct start_screen *ss, int player_num) {
+enum selector select_action(struct terminal *tm, struct start_screen *ss, int player_num) {
     print_player_selector(ss, player_num);
     int current_selected = ss->choice;
     int offset = ss->choice;
@@ -142,7 +144,7 @@ enum selector select_action(struct start_screen *ss, int player_num) {
     loop {
         printf("\033[%hu;%huH│\033[7m%s\033[0m│", ss->x+4+offset, ss->y, options[offset]);
         fflush(stdout);
-        switch (read_special_key()) {
+        switch (read_special_key(tm)) {
             case READ_INTERRUPTED:
                 return INTERRUPTED;
             case KC_UP:
@@ -227,22 +229,32 @@ void print_help_msg(struct terminal *tm, struct grid_state *state, char *help_ms
     fflush(stdout);
 }
 
-int read_next_byte_nonblocking(char *dest) {
+int read_next_byte_nonblocking(int *dest) {
+#ifndef _WIN32
     fd_set fd;
     struct timeval tv = {0, 0};
     FD_ZERO(&fd);
     FD_SET(STDIN_FILENO, &fd);
 
     if (select(STDIN_FILENO + 1, &fd, NULL, NULL, &tv) <= 0) return 0;
-    return read(STDIN_FILENO, dest, 1) == 1;
+    char char_dest;
+    int read_res = read(STDIN_FILENO, &char_dest, 1);
+    *dest = char_dest;
+    return read_res == 1;
+#else
+    if (!_kbhit()) return 0;
+    *dest = _getch();
+    return 1;
+#endif
 }
 
-int read_key_unchecked() {
+int read_key_unchecked([[maybe_unused]] struct terminal *tm) {
+#ifndef _WIN32
     char c;
     if (read(STDIN_FILENO, &c, 1) != 1) return READ_INTERRUPTED;
 
     if (c == '\033') {
-        char cc[2];
+        int cc[2];
         if (!read_next_byte_nonblocking(&cc[0])) return UNKNOWN_KEY;
         if (!read_next_byte_nonblocking(&cc[1])) return UNKNOWN_KEY;
 
@@ -255,44 +267,69 @@ int read_key_unchecked() {
             }
         }
     }
-    else if (c == '\r' || c == '\n')
+#else
+    int c;
+    while (read_next_byte_nonblocking(&c) != 1)
+        if (special_os_resize_processor(tm))
+            return READ_INTERRUPTED;
+
+    if (c == 0 || c == 224) {
+        c = _getch();
+
+        switch (c) {
+            case 72: return KC_UP;
+            case 80: return KC_DOWN;
+            case 75: return KC_LEFT;
+            case 77: return KC_RIGHT;
+        }
+    }
+#endif
+    if (c == '\r' || c == '\n')
         return KC_ENTER;
     else switch (c) {
         case 'n': return KC_N;
         case 'y': return KC_Y;
         case 'q': trigger_termination(0);
     }
+    if (c == 3) trigger_termination(0); // fixing Ctrl-C when blocking read
     return UNKNOWN_KEY;
 }
 
-int read_special_key() {
+int read_special_key([[maybe_unused]] struct terminal *tm) {
+#ifndef _WIN32
     tcflush(STDIN_FILENO, TCIFLUSH);
-    return read_key_unchecked();
+#else
+    HANDLE hInput = GetStdHandle(STD_INPUT_HANDLE);
+    if (hInput != INVALID_HANDLE_VALUE) {
+        FlushConsoleInputBuffer(hInput);
+    }
+#endif
+    return read_key_unchecked(tm);
 }
 
-void ai_delay_one_second() {
+void ai_delay_one_second(struct terminal *tm) {
     for (int i = 0; i < 20; ++i) {
         loop {
-            fd_set fd;
-            struct timeval tv = {0, 0};
-            FD_ZERO(&fd);
-            FD_SET(STDIN_FILENO, &fd);
-
-            if (select(STDIN_FILENO + 1, &fd, NULL, NULL, &tv) <= 0) break;
-            read_key_unchecked();
+            int c;
+            if (special_os_resize_processor(tm) || is_resized()) return;
+            if (read_next_byte_nonblocking(&c) != 1) break;
+            if (c == 'q') trigger_termination(0);
+#ifdef _WIN32
+            if (c == 3) trigger_termination(0); // Ctrl-C on Windows
+#endif
         }
         if (is_exit_requested()) return;
-        usleep(50000);
+        mp_sleep(MS_50);
     }
 }
 
 void on_computer_move(struct terminal *tm, struct grid_state *state) {
     char info_msg[MAX_INFO_MSG_LEN] = "Computer is thinking...";
     print_info_msg(tm, state, info_msg);
-    ai_delay_one_second();
+    ai_delay_one_second(tm);
 }
 
-int read_player_input(struct grid_state *state) {
+int read_player_input(struct terminal *tm, struct grid_state *state) {
     int offsets[9][2] = {{1, 2}, {1, 6}, {1, 10},
                         {3, 2}, {3, 6}, {3, 10},
                         {5, 2}, {5, 6}, {5, 10}};
@@ -308,9 +345,9 @@ int read_player_input(struct grid_state *state) {
         printf("\033[%hu;%huH",
                        state->grid_position_row + offsets[offset][0],
                        state->grid_position_col + offsets[offset][1]);
-                fflush(stdout);
-        key_code = read_special_key();
-        if (key_code == EINTR) {
+        fflush(stdout);
+        key_code = read_special_key(tm);
+        if ((key_code == EINTR) || (key_code == READ_INTERRUPTED)) {
             offset = READ_INTERRUPTED;
             break;
         }

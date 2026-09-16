@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/ioctl.h>
 #include <time.h>
-#include <unistd.h>
 
 #include <game.h>
 #include <prelude.h>
@@ -67,7 +65,7 @@ void print_welcome_screen(struct terminal *tm, struct top_frame *tf) {
     loop {
         if (loop_preprocessor(tm, tf) == SKIP) continue;
         print_welcome(tf->welcome);
-        if (read_special_key() == KC_ENTER) break;
+        if (read_special_key(tm) == KC_ENTER) break;
     }
 }
 
@@ -78,8 +76,9 @@ int resize_handler(struct terminal *tm, void *data) {
 
 enum frame_verdict loop_preprocessor(struct terminal *tm, struct top_frame *tf) {
     fflush(stdout);
-    usleep(FPS_30);
+    mp_sleep(FPS_30);
     clear_terminal();
+    if (special_os_resize_processor(tm)) trigger_redraw(0);
     if (is_resized()) on_resize(tm, &resize_handler, (void *)tf);
     if (!is_size_sufficient(tm, tf)) {
         printf("Expand your terminal!");
@@ -93,7 +92,7 @@ player_action select_comp(struct terminal *tm, struct top_frame *tf) {
     player_action comp;
     loop {
         if (loop_preprocessor(tm ,tf) == SKIP) continue;
-        comp = select_comp_difficulty(tf->start);
+        comp = select_comp_difficulty(tm, tf->start);
         if (comp != NULL) break;
     }
     return comp;
@@ -107,14 +106,14 @@ void start_screen(struct terminal *tm, struct top_frame *tf, struct game_state *
     loop {
         if (loop_preprocessor(tm, tf) == SKIP) continue;
         if (action_1 == NULL) {
-            switch (select_action(tf->start, 1)) {
+            switch (select_action(tm, tf->start, 1)) {
                 case PLAYER_MOVE: action_1 = &player_move; break;
                 case INTERRUPTED: continue;
                 case COMPUTER_MOVE: action_1 = select_comp(tm, tf);
             }
         }
         else if (action_2 == NULL) {
-            switch (select_action(tf->start, 2)) {
+            switch (select_action(tm, tf->start, 2)) {
                 case PLAYER_MOVE: action_2 = &player_move; break;
                 case INTERRUPTED: continue;
                 case COMPUTER_MOVE: action_2 = select_comp(tm, tf);
@@ -152,7 +151,7 @@ void game_result_screen(struct terminal *tm, struct top_frame *tf, enum game_res
         print_info_msg(tm, tf->game->grid, info_msg);
         static char HELP_MSG[MAX_HELP_MSG_LEN] = "Press Enter to continue";
         print_help_msg(tm, tf->game->grid, HELP_MSG);
-        if (read_special_key() == KC_ENTER) return;
+        if (read_special_key(tm) == KC_ENTER) return;
     }
 }
 
@@ -161,7 +160,7 @@ bool after_game_screen(struct terminal *tm, struct top_frame *tf) {
     loop {
         if (loop_preprocessor(tm, tf) == SKIP) continue;
         print_after_game_menu(tf->after_menu);
-        switch (read_special_key()) {
+        switch (read_special_key(tm)) {
             case READ_INTERRUPTED: continue;
             case KC_N: return false;
             case KC_Y: return true;
