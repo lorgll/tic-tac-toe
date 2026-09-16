@@ -7,6 +7,7 @@
 #ifndef _WIN32
 #include <asm-generic/errno-base.h>
 #include <asm-generic/ioctls.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -165,7 +166,7 @@ int on_resize(struct terminal *tm, resize_handler_t handler, void *data) {
     return SUCCESS;
 }
 
-bool special_os_resize_processor(struct terminal *tm) {
+bool special_os_resize_processor([[maybe_unused]] struct terminal *tm) {
 #ifdef _WIN32
     unsigned short old_height = tm->height,
                 old_width = tm->width;

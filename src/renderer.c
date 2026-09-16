@@ -1,13 +1,16 @@
-//#include <bits/types/struct_timeval.h>
 #include <renderer.h>
 
-//#include <asm-generic/errno-base.h>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifndef _WIN32
+#include <asm-generic/errno-base.h>
+#include <sys/select.h>
+#include <termios.h>
+#else
 #include <conio.h>
-//#include <sys/select.h>
-//#include <termios.h>
+#endif
 
 #include <game.h>
 #include <prelude.h>
@@ -234,7 +237,10 @@ int read_next_byte_nonblocking(int *dest) {
     FD_SET(STDIN_FILENO, &fd);
 
     if (select(STDIN_FILENO + 1, &fd, NULL, NULL, &tv) <= 0) return 0;
-    return read(STDIN_FILENO, dest, 1) == 1;
+    char char_dest;
+    int read_res = read(STDIN_FILENO, &char_dest, 1);
+    *dest = char_dest;
+    return read_res == 1;
 #else
     if (!_kbhit()) return 0;
     *dest = _getch();
@@ -248,7 +254,7 @@ int read_key_unchecked([[maybe_unused]] struct terminal *tm) {
     if (read(STDIN_FILENO, &c, 1) != 1) return READ_INTERRUPTED;
 
     if (c == '\033') {
-        char cc[2];
+        int cc[2];
         if (!read_next_byte_nonblocking(&cc[0])) return UNKNOWN_KEY;
         if (!read_next_byte_nonblocking(&cc[1])) return UNKNOWN_KEY;
 
