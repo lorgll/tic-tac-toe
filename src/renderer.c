@@ -8,7 +8,6 @@
 #include <conio.h>
 //#include <sys/select.h>
 //#include <termios.h>
-#include <winsock2.h>
 
 #include <game.h>
 #include <prelude.h>
@@ -244,23 +243,7 @@ int read_next_byte_nonblocking(int *dest) {
 }
 
 int read_key_unchecked([[maybe_unused]] struct terminal *tm) {
-#ifdef _WIN32
-    int c;
-    while (read_next_byte_nonblocking(&c) != 1)
-        if (special_os_resize_processor(tm))
-            return READ_INTERRUPTED;
-
-    if (c == 0 || c == 224) {
-        c = _getch();
-
-        switch (c) {
-            case 72: return KC_UP;
-            case 80: return KC_DOWN;
-            case 75: return KC_LEFT;
-            case 77: return KC_RIGHT;
-        }
-    }
-#else
+#ifndef _WIN32
     char c;
     if (read(STDIN_FILENO, &c, 1) != 1) return READ_INTERRUPTED;
 
@@ -278,6 +261,22 @@ int read_key_unchecked([[maybe_unused]] struct terminal *tm) {
             }
         }
     }
+#else
+    int c;
+    while (read_next_byte_nonblocking(&c) != 1)
+        if (special_os_resize_processor(tm))
+            return READ_INTERRUPTED;
+
+    if (c == 0 || c == 224) {
+        c = _getch();
+
+        switch (c) {
+            case 72: return KC_UP;
+            case 80: return KC_DOWN;
+            case 75: return KC_LEFT;
+            case 77: return KC_RIGHT;
+        }
+    }
 #endif
     if (c == '\r' || c == '\n')
         return KC_ENTER;
@@ -286,6 +285,7 @@ int read_key_unchecked([[maybe_unused]] struct terminal *tm) {
         case 'y': return KC_Y;
         case 'q': trigger_termination(0);
     }
+    if (c == 3) trigger_termination(0); // fixing Ctrl-C when blocking read
     return UNKNOWN_KEY;
 }
 
@@ -308,6 +308,9 @@ void ai_delay_one_second(struct terminal *tm) {
             if (special_os_resize_processor(tm)) return;
             if (read_next_byte_nonblocking(&c) != 1) break;
             if (c == 'q') trigger_termination(0);
+#ifdef _WIN32
+            if (c == 3) trigger_termination(0); // Ctrl-C on Windows
+#endif
         }
         if (is_exit_requested()) return;
         mp_sleep(MS_50);

@@ -17,9 +17,9 @@
 #include <prelude.h>
 
 #ifndef _WIN32
-struct termios terminal_state; // Переменная для Linux
+struct termios terminal_state;
 #else
-DWORD original_console_mode; // Переменная для Windows (хранит флаги консоли)
+DWORD original_console_mode;
 #endif
 
 volatile sig_atomic_t should_exit = 0;
@@ -49,7 +49,7 @@ void hide_cursor() { printf("\033[?25l"); }
 void show_cursor() { printf("\033[?25h"); }
 void clear_terminal() { printf("\033[3J\033[2J\033[H"); }
 
-void setup_resize_signal(void) {
+void setup_resize_signal() {
 #ifndef _WIN32
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
@@ -58,7 +58,7 @@ void setup_resize_signal(void) {
 #endif
 }
 
-void setup_termination_signal(void) {
+void setup_termination_signal() {
 #ifndef _WIN32
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
@@ -69,13 +69,13 @@ void setup_termination_signal(void) {
         sigaction(signals[i], &sa, NULL);
     }
 #else
-    signal(SIGINT, trigger_termination);
-    signal(SIGTERM, trigger_termination);
+    signal(SIGINT, &trigger_termination);
+    signal(SIGTERM, &trigger_termination);
 #endif
 }
 
 
-int begin_session(void) {
+int begin_session() {
     hide_cursor();
     enter_alternate_sb();
     fflush(stdout);
@@ -103,13 +103,13 @@ int begin_session(void) {
         return NOT_A_TERMINAL;
     }
 
-    DWORD outMode = 0;
+    DWORD outMode;
     if (GetConsoleMode(hOutput, &outMode)) {
         outMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
         SetConsoleMode(hOutput, outMode);
     }
 
-    DWORD inMode = 0;
+    DWORD inMode;
     if (GetConsoleMode(hInput, &inMode)) {
         inMode &= ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT);
         SetConsoleMode(hInput, inMode);
@@ -118,7 +118,7 @@ int begin_session(void) {
     return SUCCESS;
 }
 
-void end_session(void) {
+void end_session() {
 #ifndef _WIN32
     tcsetattr(STDOUT_FILENO, TCSADRAIN, &terminal_state);
 #else
